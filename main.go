@@ -8,9 +8,11 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/epiclabs-io/winman"
 	"github.com/gdamore/tcell/v2"
 	"github.com/google/go-github/v39/github"
 	"github.com/rivo/tview"
+	"github.com/zalando/go-keyring"
 	"golang.org/x/oauth2"
 	"gopkg.in/yaml.v2"
 )
@@ -25,8 +27,29 @@ type Config struct {
 	Token string
 }
 
-func loadConfig() *Config {
+type SecretStorage struct {
+	service string
+	user    string
+}
+
+func NewSecretStorage() SecretStorage {
+	return SecretStorage{
+		service: "go-pr-watcher",
+		user:    "github-pat",
+	}
+}
+
+func (storage *SecretStorage) store(secret string) {
+	keyring.Set(storage.service, storage.user, secret)
+}
+
+func (storage *SecretStorage) read() (string, error) {
+	return keyring.Get(storage.service, storage.user)
+}
+
+func loadConfig(app *tview.Application, onSuccess func(config *Config)) {
 	var config Config
+
 	yamlFile, err := ioutil.ReadFile("config.yaml")
 	if err != nil {
 		log.Printf("yamlFile.Get err   #%v ", err)
@@ -36,7 +59,51 @@ func loadConfig() *Config {
 		log.Fatalf("Unmarshal: %v", err)
 	}
 
-	return &config
+	wm := winman.NewWindowManager()
+	secretStorage := NewSecretStorage()
+	token, err := secretStorage.read()
+	if err != nil {
+		if err.Error() == "secret not found in keyring" {
+
+			passwordField := tview.NewInputField().
+				SetLabel("Token").
+				SetText("").
+				SetFieldWidth(30).
+				SetMaskCharacter('*').
+				SetChangedFunc(func(text string) {
+					token = text
+				}).SetDoneFunc(func(key tcell.Key) {
+				if key == tcell.KeyCR {
+					secretStorage.store(token)
+					config.Token = token
+					onSuccess(&config)
+				} else {
+					app.Stop()
+				}
+			})
+
+			form := tview.NewForm().AddFormItem(passwordField)
+			window := wm.NewWindow().
+				Show().
+				SetRoot(form).
+				SetDraggable(true).
+				SetResizable(true).
+				SetTitle("GitHub Personal token").
+				AddButton(&winman.Button{
+					Symbol:  'X',
+					OnClick: func() { app.Stop() },
+				})
+			window.SetRect(5, 5, 50, 5)
+
+			app.SetRoot(wm, true).EnableMouse(true)
+		} else {
+			log.Fatal(err)
+		}
+	} else {
+		config.Token = token
+		onSuccess(&config)
+	}
+
 }
 
 func contains(arr []string, str string) bool {
@@ -97,11 +164,8 @@ func openbrowser(url string) {
 
 }
 
-func main() {
-	config := loadConfig()
+func drawTable(config *Config, app *tview.Application) *tview.Table {
 	prs := listPullRequests(config)
-
-	app := tview.NewApplication()
 	table := tview.NewTable().
 		SetBorders(true)
 	cols, rows := 5, len(prs)+1
@@ -162,7 +226,19 @@ func main() {
 		table.SetSelectable(false, false)
 		openbrowser(*prs[row-1].pr.HTMLURL)
 	})
-	if err := app.SetRoot(table, true).SetFocus(table).Run(); err != nil {
+
+	return table
+}
+
+func main() {
+	app := tview.NewApplication()
+
+	loadConfig(app, func(config *Config) {
+		table := drawTable(config, app)
+		app.SetRoot(table, true)
+	})
+
+	if err := app.Run(); err != nil {
 		panic(err)
 	}
 }
