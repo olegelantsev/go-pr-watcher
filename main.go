@@ -60,20 +60,17 @@ func listPullRequests(config *Config) []PullRequestMetadata {
 	pullRequests := []PullRequestMetadata{}
 	prState := &github.PullRequestListOptions{State: "open"}
 	for userName, repoNames := range config.Repos {
-		repos, _, err := client.Repositories.List(context.Background(), userName, nil)
-		if err != nil {
-			panic(err)
-		}
-		log.Println(repoNames)
-		for _, repo := range repos {
-			if contains(repoNames, repo.GetName()) {
-				prs, _, err := client.PullRequests.List(context.Background(), userName, repo.GetName(), prState)
-				if err != nil {
-					panic(err)
-				}
-				for _, pr := range prs {
-					pullRequests = append(pullRequests, PullRequestMetadata{pr, repo.GetName()})
-				}
+		for _, repoName := range repoNames {
+			repo, _, err := client.Repositories.Get(context.Background(), userName, repoName)
+			if err != nil {
+				panic(err)
+			}
+			prs, _, err := client.PullRequests.List(context.Background(), userName, repo.GetName(), prState)
+			if err != nil {
+				panic(err)
+			}
+			for _, pr := range prs {
+				pullRequests = append(pullRequests, PullRequestMetadata{pr, repo.GetName()})
 			}
 		}
 	}
