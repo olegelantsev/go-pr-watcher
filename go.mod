@@ -10,5 +10,6 @@ require (
 	github.com/rivo/tview v0.0.0-20211001102648-5508f4b00266
 	github.com/zalando/go-keyring v0.1.1 // indirect
 	golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be
+	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
 	"runtime"
+	"strings"
+	"syscall"
 
-	"github.com/epiclabs-io/winman"
 	"github.com/gdamore/tcell/v2"
 	"github.com/google/go-github/v39/github"
 	"github.com/rivo/tview"
 	"github.com/zalando/go-keyring"
 	"golang.org/x/oauth2"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v2"
 )
 
@@ -47,7 +50,14 @@ func (storage *SecretStorage) read() (string, error) {
 	return keyring.Get(storage.service, storage.user)
 }
 
-func loadConfig(app *tview.Application, onSuccess func(config *Config)) {
+func (storage *SecretStorage) delete() {
+	err := keyring.Delete(storage.service, storage.user)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func loadConfig(app *tview.Application) Config {
 	var config Config
 
 	yamlFile, err := ioutil.ReadFile("config.yaml")
@@ -59,51 +69,23 @@ func loadConfig(app *tview.Application, onSuccess func(config *Config)) {
 		log.Fatalf("Unmarshal: %v", err)
 	}
 
-	wm := winman.NewWindowManager()
 	secretStorage := NewSecretStorage()
 	token, err := secretStorage.read()
 	if err != nil {
 		if err.Error() == "secret not found in keyring" {
-
-			passwordField := tview.NewInputField().
-				SetLabel("Token").
-				SetText("").
-				SetFieldWidth(30).
-				SetMaskCharacter('*').
-				SetChangedFunc(func(text string) {
-					token = text
-				}).SetDoneFunc(func(key tcell.Key) {
-				if key == tcell.KeyCR {
-					secretStorage.store(token)
-					config.Token = token
-					onSuccess(&config)
-				} else {
-					app.Stop()
-				}
-			})
-
-			form := tview.NewForm().AddFormItem(passwordField)
-			window := wm.NewWindow().
-				Show().
-				SetRoot(form).
-				SetDraggable(true).
-				SetResizable(true).
-				SetTitle("GitHub Personal token").
-				AddButton(&winman.Button{
-					Symbol:  'X',
-					OnClick: func() { app.Stop() },
-				})
-			window.SetRect(5, 5, 50, 5)
-
-			app.SetRoot(wm, true).EnableMouse(true)
+			fmt.Fprintf(os.Stdout, "GitHub Personal Token:\n")
+			bytebw, err := term.ReadPassword(int(syscall.Stdin))
+			if err != nil {
+				log.Fatal(err)
+			}
+			token = string(bytebw)
+			secretStorage.store(token)
 		} else {
 			log.Fatal(err)
 		}
-	} else {
-		config.Token = token
-		onSuccess(&config)
 	}
-
+	config.Token = token
+	return config
 }
 
 func contains(arr []string, str string) bool {
@@ -115,7 +97,7 @@ func contains(arr []string, str string) bool {
 	return false
 }
 
-func listPullRequests(config *Config) []PullRequestMetadata {
+func listPullRequests(config Config) []PullRequestMetadata {
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: config.Token},
@@ -130,6 +112,9 @@ func listPullRequests(config *Config) []PullRequestMetadata {
 		for _, repoName := range repoNames {
 			repo, _, err := client.Repositories.Get(context.Background(), userName, repoName)
 			if err != nil {
+				if strings.Contains(err.Error(), "401 Bad credentials") {
+					fmt.Fprintf(os.Stderr, "Bad Credentials")
+				}
 				panic(err)
 			}
 			prs, _, err := client.PullRequests.List(context.Background(), userName, repo.GetName(), prState)
@@ -164,7 +149,7 @@ func openbrowser(url string) {
 
 }
 
-func drawTable(config *Config, app *tview.Application) *tview.Table {
+func drawTable(config Config, app *tview.Application) *tview.Table {
 	prs := listPullRequests(config)
 	table := tview.NewTable().
 		SetBorders(true)
@@ -233,10 +218,9 @@ func drawTable(config *Config, app *tview.Application) *tview.Table {
 func main() {
 	app := tview.NewApplication()
 
-	loadConfig(app, func(config *Config) {
-		table := drawTable(config, app)
-		app.SetRoot(table, true)
-	})
+	config := loadConfig(app)
+	table := drawTable(config, app)
+	app.SetRoot(table, true).SetFocus(table)
 
 	if err := app.Run(); err != nil {
 		panic(err)
