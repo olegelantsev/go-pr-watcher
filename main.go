@@ -245,8 +245,10 @@ func drawTable(app *tview.Application, channel chan PullRequestMetadata) *tview.
 			table.SetSelectable(true, false)
 		}
 	}).SetSelectedFunc(func(row int, column int) {
-		table.SetSelectable(false, false)
-		openbrowser(*prs[row-1].pr.HTMLURL)
+		if row > 0 {
+			table.SetSelectable(false, false)
+			openbrowser(*prs[row-1].pr.HTMLURL)
+		}
 	})
 
 	return table
