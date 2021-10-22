@@ -9,12 +9,11 @@ Shows open pull requests on configured GitHub repositories.
 ## Getting started
 
 1. Create GitHub personal token with read permissions
-2. Create `config.yaml` with the token and repositories
+2. Create `config.yaml` with repositories map
 
-```
+```yaml
 repos:
-  olegelantsev:
-    - gimmeemail
+  olegelantsev: # repo owner
+    - gimmeemail # repo name
     - pr-watcher
-token: <GitHub personal token>
 ```
