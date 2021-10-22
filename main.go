@@ -25,8 +25,10 @@ type PullRequestMetadata struct {
 	repoName string
 }
 
+type RepoMap = map[string][]string
+
 type Config struct {
-	Repos map[string][]string
+	Repos RepoMap
 	Token string
 }
 
@@ -57,6 +59,38 @@ func (storage *SecretStorage) delete() {
 	}
 }
 
+func verifyToken(client *github.Client) {
+	_, _, err := client.Users.Get(context.Background(), "")
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func readTokenFromInput() string {
+	fmt.Fprintf(os.Stdout, "GitHub Personal Token:\n")
+	bytebw, err := term.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(bytebw)
+}
+
+func loadToken() string {
+	secretStorage := NewSecretStorage()
+	token, err := secretStorage.read()
+	if err != nil {
+		if err.Error() == "secret not found in keyring" {
+			token = readTokenFromInput()
+			client := createGitHubClient(token)
+			verifyToken(client)
+			secretStorage.store(token)
+		} else {
+			log.Fatal(err)
+		}
+	}
+	return token
+}
+
 func loadConfig(app *tview.Application) Config {
 	var config Config
 
@@ -68,23 +102,7 @@ func loadConfig(app *tview.Application) Config {
 	if err != nil {
 		log.Fatalf("Unmarshal: %v", err)
 	}
-
-	secretStorage := NewSecretStorage()
-	token, err := secretStorage.read()
-	if err != nil {
-		if err.Error() == "secret not found in keyring" {
-			fmt.Fprintf(os.Stdout, "GitHub Personal Token:\n")
-			bytebw, err := term.ReadPassword(int(syscall.Stdin))
-			if err != nil {
-				log.Fatal(err)
-			}
-			token = string(bytebw)
-			secretStorage.store(token)
-		} else {
-			log.Fatal(err)
-		}
-	}
-	config.Token = token
+	config.Token = loadToken()
 	return config
 }
 
@@ -97,18 +115,28 @@ func contains(arr []string, str string) bool {
 	return false
 }
 
-func listPullRequests(config Config) []PullRequestMetadata {
+func createGitHubClient(token string) *github.Client {
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: config.Token},
+		&oauth2.Token{AccessToken: token},
 	)
 	tc := oauth2.NewClient(ctx, ts)
 
-	client := github.NewClient(tc)
+	return github.NewClient(tc)
+}
 
-	pullRequests := []PullRequestMetadata{}
+func listPullRequests(repos RepoMap, client *github.Client) chan PullRequestMetadata {
+	channel := make(chan PullRequestMetadata)
+
+	go func() {
+		retrievePullRequests(repos, client, channel)
+	}()
+	return channel
+}
+
+func retrievePullRequests(repos map[string][]string, client *github.Client, channel chan PullRequestMetadata) {
 	prState := &github.PullRequestListOptions{State: "open"}
-	for userName, repoNames := range config.Repos {
+	for userName, repoNames := range repos {
 		for _, repoName := range repoNames {
 			repo, _, err := client.Repositories.Get(context.Background(), userName, repoName)
 			if err != nil {
@@ -122,12 +150,10 @@ func listPullRequests(config Config) []PullRequestMetadata {
 				panic(err)
 			}
 			for _, pr := range prs {
-				pullRequests = append(pullRequests, PullRequestMetadata{pr, repo.GetName()})
+				channel <- PullRequestMetadata{pr, repo.GetName()}
 			}
 		}
 	}
-
-	return pullRequests
 }
 
 func openbrowser(url string) {
@@ -149,36 +175,42 @@ func openbrowser(url string) {
 
 }
 
-func drawTable(config Config, app *tview.Application) *tview.Table {
-	prs := listPullRequests(config)
+func drawTable(app *tview.Application, channel chan PullRequestMetadata) *tview.Table {
+
 	table := tview.NewTable().
 		SetBorders(true)
-	cols, rows := 5, len(prs)+1
+	cols := 5
 	for c := 0; c < cols; c++ {
 		table.GetCell(0, c).SetSelectable(false)
+
+		var text string
+		switch c {
+		case 0:
+			text = "PR title"
+		case 1:
+			text = "state"
+		case 2:
+			text = "repo name"
+		case 3:
+			text = "user name"
+		case 4:
+			text = "created at"
+		}
+		color := tcell.ColorYellow
+		table.SetCell(0, c,
+			tview.NewTableCell(text).
+				SetTextColor(color).
+				SetAlign(tview.AlignCenter).
+				SetSelectable(false))
 	}
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
-			color := tcell.ColorWhite
-			var text string
-			if c < 1 || r < 1 {
-				color = tcell.ColorYellow
-			}
-			if r == 0 {
-				switch c {
-				case 0:
-					text = "PR title"
-				case 1:
-					text = "state"
-				case 2:
-					text = "repo name"
-				case 3:
-					text = "user name"
-				case 4:
-					text = "created at"
-				}
-			} else {
-				pr := prs[r-1]
+	prs := []PullRequestMetadata{}
+	go func() {
+		r := 1
+		for pr := range channel {
+			for c := 0; c < cols; c++ {
+				color := tcell.ColorWhite
+				var text string
+
 				switch c {
 				case 0:
 					text = *pr.pr.Title
@@ -192,14 +224,19 @@ func drawTable(config Config, app *tview.Application) *tview.Table {
 					text = pr.pr.CreatedAt.String()
 				}
 
-			}
+				app.QueueUpdateDraw(func() {
+					table.SetCell(r, c,
+						tview.NewTableCell(text).
+							SetTextColor(color).
+							SetAlign(tview.AlignCenter))
+				})
 
-			table.SetCell(r, c,
-				tview.NewTableCell(text).
-					SetTextColor(color).
-					SetAlign(tview.AlignCenter))
+			}
+			prs = append(prs, pr)
+			r += 1
 		}
-	}
+	}()
+
 	table.Select(0, 0).SetFixed(1, 1).SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEscape {
 			app.Stop()
@@ -216,10 +253,13 @@ func drawTable(config Config, app *tview.Application) *tview.Table {
 }
 
 func main() {
+	log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
 	app := tview.NewApplication()
 
 	config := loadConfig(app)
-	table := drawTable(config, app)
+	gitHubClient := createGitHubClient(config.Token)
+	pullRequestsChannel := listPullRequests(config.Repos, gitHubClient)
+	table := drawTable(app, pullRequestsChannel)
 	app.SetRoot(table, true).SetFocus(table)
 
 	if err := app.Run(); err != nil {
