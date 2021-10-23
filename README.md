@@ -2,9 +2,7 @@
 
 [![Go](https://github.com/olegelantsev/go-pr-watcher/actions/workflows/go.yml/badge.svg)](https://github.com/olegelantsev/go-pr-watcher/actions/workflows/go.yml)
 
-------
-
-## About
+---
 
 Shows open pull requests on configured GitHub repositories.
 
