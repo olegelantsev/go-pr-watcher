@@ -114,7 +114,7 @@ func main() {
 
 	config := loadConfig(app)
 	gitHubWrapper := NewGitHubWrapper(config.Token)
-	pullRequestsChannel := gitHubWrapper.ListPullRequests(config.Repos)
+	pullRequestsChannel := gitHubWrapper.ListPullRequests(config.GitHub)
 	table := drawTable(app, pullRequestsChannel)
 	app.SetRoot(table, true).SetFocus(table)
 

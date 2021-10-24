@@ -14,7 +14,7 @@ Shows open pull requests on configured GitHub repositories.
 2. Create `config.yaml` with repositories map
 
 ```yaml
-repos:
+github:
   olegelantsev: # repo owner
     - gimmeemail # repo name
     - pr-watcher

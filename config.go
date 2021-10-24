@@ -15,8 +15,8 @@ import (
 type RepoMap = map[string][]string
 
 type Config struct {
-	Repos RepoMap
-	Token string
+	GitHub RepoMap `yaml:"github"`
+	Token  string
 }
 
 func loadToken() string {
