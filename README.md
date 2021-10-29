@@ -22,11 +22,11 @@ github:
 
 ## Features
 
-[x] Show GitHub PRs
-[ ] Show Bitbucket PRs
-[ ] Show GitLab PRs
-[x] Securely store token in the keyring
-[x] Async load of PRs and table refresh
-[ ] Smart load of many PRs repos with filtering
-[ ] Improve test coverage
-[ ] Refresh PRs list periodically
+- [x] Show GitHub PRs
+- [ ] Show Bitbucket PRs
+- [ ] Show GitLab PRs
+- [x] Securely store token in the keyring
+- [x] Async load of PRs and table refresh
+- [ ] Smart load of many PRs repos with filtering
+- [ ] Improve test coverage
+- [ ] Refresh PRs list periodically
